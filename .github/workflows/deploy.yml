@@ -1,0 +1,57 @@
+name: Deploy Champions BTE
+
+# Intentionally manual only: the live Cloudflare project already has a site,
+# and its original editable source has not yet been imported here.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: champions-bte-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build and verify output
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package.json ]]; then
+            if [[ -f package-lock.json ]]; then
+              npm ci
+            else
+              echo '::error::No package-lock.json found. Add a verified build lockfile, or adapt this workflow for the correct package manager.'
+              exit 1
+            fi
+            npm run build
+          fi
+          if [[ ! -f dist/index.html ]]; then
+            echo '::error::No dist/index.html present. Import the original website source, make sure it builds into dist/, and test before deploying.'
+            exit 1
+          fi
+
+      - name: Deploy to the EXISTING Cloudflare Pages project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+            echo '::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in GitHub Actions repository secrets.'
+            exit 1
+          fi
+          npx --yes wrangler@4 pages deploy dist --project-name=champions --branch=main
